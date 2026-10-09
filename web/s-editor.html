@@ -1,0 +1,1710 @@
+<title>s editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* layout: top bar; editor (right-aligned) beside the operation palette; output and stdin below */
+:root {
+  color-scheme: light;
+  --bg: #e9dccb;
+  --panel: #f6eee3;
+  --paper: #fbf6ef;
+  --line: #cdb9a1;
+  --ink: #4a3829;
+  --muted: #8a7461;
+  --accent: #a0522d;
+  --accent-ink: #fbf6ef;
+  --sel: #e7cfae;
+  --shadow: 0 1px 0 #d8c6ae, 0 6px 18px -8px rgba(110, 80, 50, .35);
+  --shadow-press: inset 0 1px 3px rgba(110, 80, 50, .25);
+  --c-io: #8c2f5c;
+  --c-file: #5d4a9c;
+  --c-num: #23725a;
+  --c-cond: #b4531c;
+  --c-list: #2a5f96;
+  --c-code: #a12d2d;
+  --c-thread: #6e3a8f;
+  --c-lit: #3f6f7d;
+  --c-brace: #5f7322;
+  --c-raw: #8a9450;
+  --c-quote: #8a6418;
+  --c-interp: #b0472b;
+  --c-interp-bg: #f4dcc8;
+  --c-lookup: #1f7f86;
+  --c-comment: #a39079;
+  --c-err: #c0392b;
+  --ok: #3d7a3a;
+  --font-code: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --font-ui: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --code-size: 15px;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; }
+* { box-sizing: border-box; border-radius: 0 !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 10px 16px 12px; }
+
+/* top bar */
+.bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mark { font-family: var(--font-code); font-weight: 700; font-size: 22px; letter-spacing: -.02em; color: var(--accent); padding-inline: 4px 8px; }
+.mark small { font-family: var(--font-ui); font-weight: 500; font-size: 12px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin-left: 6px; }
+.grow { flex: 1; }
+.btn { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--paper); }
+.btn:active { box-shadow: var(--shadow-press); }
+.btn[disabled] { opacity: .45; cursor: default; box-shadow: none; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.small { padding: 3px 8px; font-size: 12px; }
+.kbd { font-family: var(--font-code); font-size: 11px; opacity: .75; margin-left: 6px; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: var(--muted); }
+select.btn { padding-right: 6px; }
+.seg { display: inline-flex; box-shadow: var(--shadow); }
+.seg .btn { box-shadow: none; }
+.seg .btn + .btn { border-left: none; }
+.seg .btn[aria-pressed="true"] { background: var(--sel); box-shadow: var(--shadow-press); }
+
+/* main area */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 330px; grid-template-rows: minmax(0, 1fr) minmax(170px, 38%); gap: 10px; min-height: 0; }
+.pane { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+
+/* file tabs */
+.tabs { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--bg); }
+.tab { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-right: 1px solid var(--line); cursor: pointer; font-family: var(--font-code); font-size: 13px; color: var(--muted); white-space: nowrap; background: transparent; border-top: none; border-left: none; border-bottom: none; }
+.tab.on { background: var(--paper); color: var(--ink); box-shadow: inset 0 2px 0 var(--accent); }
+.tab .x { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 2px; font-size: 13px; }
+.tab .x:hover { color: var(--c-err); }
+.tab .confirm { border: 1px solid var(--c-err); background: var(--paper); color: var(--c-err); font-size: 11px; padding: 1px 5px; cursor: pointer; }
+.tab input { font-family: var(--font-code); font-size: 13px; width: 11ch; border: 1px solid var(--line); background: var(--paper); padding: 1px 4px; }
+.tabs .add { padding: 6px 10px; border: none; background: none; cursor: pointer; color: var(--muted); font-size: 15px; }
+.tabs .add:hover { color: var(--accent); }
+
+/* editor */
+.ed { position: relative; flex: 1; min-height: 0; background: var(--paper); }
+.ed textarea, .ed pre { position: absolute; left: 0; top: 0; margin: 0; padding: 14px 18px 40px; border: 0; font-family: var(--font-code); font-size: var(--code-size); line-height: 1.6; white-space: pre; tab-size: 2; font-variant-ligatures: none; letter-spacing: 0; text-align: right; }
+.ed[data-align="left"] textarea, .ed[data-align="left"] pre { text-align: left; }
+.ed textarea { width: 100%; height: 100%; resize: none; background: transparent; color: transparent; caret-color: var(--accent); overflow: auto; outline: none; z-index: 1; }
+.ed textarea::selection { background: rgba(160, 82, 45, .22); color: transparent; }
+.ed pre { overflow: hidden; pointer-events: none; color: var(--ink); }
+.status { display: flex; gap: 14px; align-items: center; padding: 5px 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); min-height: 28px; }
+.status .tokinfo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status code { font-family: var(--font-code); color: var(--ink); }
+.pos { font-family: var(--font-code); font-variant-numeric: tabular-nums; }
+
+/* syntax */
+.k-word { color: var(--ink); }
+.k-numlit { color: var(--c-lit); }
+.k-brace { color: var(--c-brace); }
+.k-bracedelim { color: var(--c-brace); font-weight: 700; }
+.k-raw { color: var(--c-raw); }
+.k-interp { color: var(--c-interp); background: var(--c-interp-bg); }
+.k-quote { color: var(--c-quote); }
+.k-io { color: var(--c-io); font-weight: 700; }
+.k-file { color: var(--c-file); font-weight: 700; }
+.k-num { color: var(--c-num); font-weight: 700; }
+.k-cond { color: var(--c-cond); font-weight: 700; }
+.k-list { color: var(--c-list); font-weight: 700; }
+.k-code { color: var(--c-code); font-weight: 700; }
+.k-thread { color: var(--c-thread); font-weight: 700; }
+.k-stem-lookup { color: var(--c-lookup); }
+.k-stem-def, .k-stem-call { color: var(--c-code); }
+.k-stem-set { color: var(--c-num); }
+.k-sfx { font-weight: 700; color: var(--accent); }
+.k-sfx-cond { font-weight: 700; color: var(--c-cond); }
+[hidden] { display: none !important; }
+.k-body { background: rgba(95, 115, 34, .06); }
+.k-comment, .k-comment * { color: var(--c-comment) !important; font-style: italic; font-weight: 400 !important; background: none !important; }
+.k-err { color: var(--c-err); text-decoration: wavy underline var(--c-err); }
+
+/* palette */
+.pal { grid-row: 1 / span 2; grid-column: 2; }
+.pal-head { display: flex; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.pal-head input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--paper); padding: 5px 8px; }
+.pal-body { overflow-y: auto; flex: 1; padding: 6px 8px 10px; display: flex; flex-direction: column; gap: 10px; }
+.grp h3 { margin: 4px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.grp h3 i { width: 9px; height: 9px; display: inline-block; }
+.ops { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 5px; }
+.op { font-family: var(--font-code); font-size: 14px; font-weight: 700; padding: 7px 2px; background: var(--paper); border: 1px solid var(--line); box-shadow: var(--shadow); cursor: pointer; text-align: center; white-space: nowrap; overflow: hidden; }
+.op:hover, .op:focus-visible { background: #fff9f1; transform: translateY(-1px); }
+.op:active { box-shadow: var(--shadow-press); transform: none; }
+.doc { border-top: 1px solid var(--line); padding: 10px 12px 12px; background: var(--paper); min-height: 112px; font-size: 13px; line-height: 1.45; }
+.doc .sig { font-family: var(--font-code); font-size: 14px; margin-bottom: 4px; text-align: right; }
+.doc .sig b { color: var(--accent); }
+.doc .what { color: var(--ink); }
+.doc .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+/* output */
+.outpane { grid-column: 1; grid-row: 2; display: grid; grid-template-columns: minmax(0, 1fr) 240px; }
+.out-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+.out-head { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.out-head .tab { border: none; padding: 4px 10px; font-family: var(--font-ui); font-size: 13px; }
+.runinfo { margin-left: auto; font-size: 12px; color: var(--muted); font-family: var(--font-code); padding-right: 6px; }
+.runinfo.bad { color: var(--c-err); }
+.runinfo.good { color: var(--ok); }
+.out { flex: 1; overflow: auto; margin: 0; padding: 8px 12px 12px; font-family: var(--font-code); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; background: var(--paper); }
+.out .e { color: var(--c-err); }
+.out .w { color: var(--c-comment); }
+.state { flex: 1; overflow: auto; padding: 10px 12px; background: var(--paper); display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
+.state h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.chip { font-family: var(--font-code); font-size: 12.5px; padding: 2px 7px; background: var(--panel); border: 1px solid var(--line); }
+.chip.ow-true { background: #dcebd5; border-color: #a6c79a; }
+.chip.ow-false { background: #f1d9cf; border-color: #d9a993; }
+.kv { width: 100%; border-collapse: collapse; font-family: var(--font-code); font-size: 12.5px; }
+.kv td { border-bottom: 1px solid #eadccb; padding: 2px 6px; vertical-align: top; word-break: break-word; }
+.kv td:first-child { color: var(--c-lookup); width: 30%; }
+.empty { color: var(--muted); font-style: italic; }
+.io { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; min-height: 0; }
+.io label { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
+.io label span { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.io textarea, .io input { width: 100%; border: 1px solid var(--line); background: var(--paper); padding: 6px 8px; font-family: var(--font-code); font-size: 13px; }
+.io textarea { flex: 1; resize: none; min-height: 60px; }
+.hidden-file { display: none; }
+
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  .app { height: auto; }
+  .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+  .main > .pane:first-child .ed { min-height: 52vh; }
+  .pal { grid-row: auto; grid-column: 1; max-height: 70vh; }
+  .outpane { grid-column: 1; grid-row: auto; grid-template-columns: minmax(0, 1fr); min-height: 340px; }
+  .out-main { border-right: none; border-bottom: 1px solid var(--line); min-height: 220px; }
+}
+@media (prefers-reduced-motion: reduce) { .op:hover { transform: none; } }
+</style>
+
+<div class="app">
+  <div class="bar">
+    <div class="mark">s<small>editor</small></div>
+    <button class="btn primary" id="run" title="Run the open file (Ctrl+Enter)">Run<span class="kbd">Ctrl ⏎</span></button>
+    <button class="btn" id="stop" disabled>Stop</button>
+    <label class="check" for="live"><input type="checkbox" id="live"> live</label>
+    <div class="grow"></div>
+    <select class="btn" id="examples" aria-label="Open an example">
+      <option value="">Open example…</option>
+    </select>
+    <div class="seg" role="group" aria-label="Text alignment">
+      <button class="btn small" id="al-right" aria-pressed="true" title="Right-aligned text">⇥ right</button>
+      <button class="btn small" id="al-left" aria-pressed="false" title="Left-aligned text">⇤ left</button>
+    </div>
+    <div class="seg" role="group" aria-label="Text size">
+      <button class="btn small" id="fs-down" title="Smaller text">A−</button>
+      <button class="btn small" id="fs-up" title="Larger text">A+</button>
+    </div>
+    <button class="btn small" id="copy" title="Copy the open file">Copy</button>
+    <button class="btn small" id="upload" title="Add .s files from your computer">Add files</button>
+    <input type="file" id="file-in" class="hidden-file" multiple accept=".s,.txt,text/plain">
+  </div>
+
+  <div class="main">
+    <section class="pane">
+      <div class="tabs" id="tabs"></div>
+      <div class="ed" id="ed" data-align="right">
+        <pre id="hl" aria-hidden="true"></pre>
+        <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="s source"></textarea>
+      </div>
+      <div class="status">
+        <span class="tokinfo" id="tokinfo"></span>
+        <span class="pos" id="pos">1:1</span>
+      </div>
+    </section>
+
+    <section class="pane pal" aria-label="Operations">
+      <div class="pal-head"><input id="filter" type="search" placeholder="Filter operations" aria-label="Filter operations"></div>
+      <div class="pal-body" id="pal"></div>
+      <div class="doc" id="doc"></div>
+    </section>
+
+    <section class="pane outpane">
+      <div class="out-main">
+        <div class="out-head">
+          <button class="tab on" id="t-out">Output</button>
+          <button class="tab" id="t-state">State</button>
+          <button class="btn small" id="clear" style="margin-left:6px">Clear</button>
+          <span class="runinfo" id="runinfo"></span>
+        </div>
+        <pre class="out" id="out"></pre>
+        <div class="state" id="state" hidden></div>
+      </div>
+      <div class="io">
+        <label for="argv">args <span>list args, argc</span></label>
+        <input id="argv" placeholder="saul pretoria">
+        <label for="stdin">stdin <span>one line per &lt;_</span></label>
+        <textarea id="stdin" spellcheck="false" placeholder="lines read by <_"></textarea>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script id="srt">
+// s runtime for the browser. Semantics follow src/rt.rs.
+var SRT = (function () {
+  "use strict";
+
+  class SErr extends Error {}
+  class SExit extends Error {
+    constructor(code) { super("exit " + code); this.code = code; }
+  }
+
+  const enc = new TextEncoder();
+  const dec = new TextDecoder("utf-8", { fatal: false });
+
+  const CMDS = {
+    ">": "Print", ">_": "PrintRaw", "<": "Shell", "<_": "ReadIn",
+    "w": "Write", "+w": "Append", "mv": "Move", "r": "Read", "r@": "ReadAt",
+    "?)": "Match", "&&&": "Repeat", "***": "Par",
+    "n": "SetN", "+": "Add", "-": "Sub", "*": "Mul", "/": "Div", "^": "Pow", "%": "Mod",
+    "!!": "Not", "=": "Eq", "!=": "Ne", ";": "AndNe", "&": "AndEq",
+    "==": "NumEq", "<<": "Lt", ">>": "Gt", "<<=": "Le", ">>=": "Ge",
+    "l": "LPush", "-l": "LPop", "[l]": "LGet", "l=": "LSet", "l-": "LDel",
+    "#l": "LLen", "/l": "Split", "l/": "Join", "#s": "SLen",
+    "f": "Open", "+f": "FWriteAt", "@f": "FReadAt", "f-": "FClose",
+    "f_": "FWriteLn", "_f": "FReadLn", "?eof": "Eof",
+    "t": "Spawn", "-t": "Kill", "<t": "Send", ">t": "Recv",
+    "#prng": "PrngN", "`prng": "PrngS",
+    "><": "Replace", "//": "Comment", "<-": "Ret", "<--": "Exit",
+  };
+  const cmdOf = (w) => (Object.prototype.hasOwnProperty.call(CMDS, w) ? CMDS[w] : null);
+  const SUFFIX = "?!~$`#;:.";
+
+  const NUM_RE = /^[+-]?(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|inf|infinity|nan)$/i;
+
+  function strictNum(s) {
+    if (!NUM_RE.test(s)) return null;
+    const l = s.toLowerCase().replace(/^[+-]/, "");
+    const neg = s[0] === "-";
+    if (l === "inf" || l === "infinity") return neg ? -Infinity : Infinity;
+    if (l === "nan") return NaN;
+    return parseFloat(s);
+  }
+  function parseNum(s) {
+    const x = strictNum(s.trim());
+    return x === null ? 0 : x;
+  }
+  function fmtNum(x) {
+    if (x === 0) return "0";
+    if (Number.isNaN(x)) return "NaN";
+    if (x === Infinity) return "inf";
+    if (x === -Infinity) return "-inf";
+    const s = String(x);
+    const e = s.indexOf("e");
+    if (e < 0) return s;
+    let m = s.slice(0, e), ex = parseInt(s.slice(e + 1), 10);
+    let neg = false;
+    if (m[0] === "-") { neg = true; m = m.slice(1); }
+    let [ip, fp = ""] = m.split(".");
+    let digits = ip + fp, point = ip.length + ex;
+    let out;
+    if (point <= 0) out = "0." + "0".repeat(-point) + digits;
+    else if (point >= digits.length) out = digits + "0".repeat(point - digits.length);
+    else out = digits.slice(0, point) + "." + digits.slice(point);
+    return (neg ? "-" : "") + out;
+  }
+  function canon(s) {
+    const x = strictNum(s);
+    if (x === null) return null;
+    return fmtNum(x) === s ? x : null;
+  }
+  const text = (v) => (typeof v === "number" ? fmtNum(v) : v);
+  const num = (v) => (typeof v === "number" ? v : parseNum(v));
+  function valEq(a, b) {
+    if (typeof a === "number" && typeof b === "number" && !Number.isNaN(a) && !Number.isNaN(b)) return a === b;
+    return text(a) === text(b);
+  }
+  function toI64(x) {
+    if (Number.isNaN(x)) return 0;
+    x = Math.trunc(x);
+    if (x > 9223372036854775807) return 9223372036854775807;
+    if (x < -9223372036854775808) return -9223372036854775808;
+    return x;
+  }
+  const toU = (x) => Math.max(0, toI64(x));
+  const isWs = (c) => c === " " || c === "\n" || c === "\t" || c === "\r";
+
+  // parser
+
+  function classify(w) {
+    const c = cmdOf(w);
+    if (c) return { k: "cmd", c };
+    const cs = Array.from(w);
+    const last = cs[cs.length - 1];
+    const stem = cs.slice(0, -1).join("");
+    if (stem.length > 0 && SUFFIX.includes(last)) {
+      switch (last) {
+        case "?": return { k: "cond", t: true, op: classify(stem) };
+        case "!": return { k: "cond", t: false, op: classify(stem) };
+        case "~": return { k: "lookup", s: stem };
+        case "$": return { k: "def", s: stem };
+        case "`": return { k: "setmem", s: stem };
+        case "#": return { k: "setnum", s: stem };
+        case ";": return { k: "inc", s: stem };
+        case ":": return { k: "dec", s: stem };
+        case ".":
+          if (stem.length > 1 && stem.endsWith(".")) return { k: "callpass", s: stem.slice(0, -1) };
+          return { k: "call", s: stem };
+      }
+    }
+    return { k: "word", t: w };
+  }
+
+  function brace(cs, i) {
+    const n = cs.length;
+    let depth = 1, j = i + 1, parts = [], cur = "";
+    while (j < n) {
+      const c = cs[j];
+      if (c === "{") { depth++; cur += c; j++; }
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) { if (cur) parts.push({ t: cur }); return [parts, j + 1]; }
+        cur += c; j++;
+      } else if (c === "~" && depth === 1) {
+        let k = j + 1;
+        while (k < n && cs[k] !== "~" && cs[k] !== "{" && cs[k] !== "}" && !isWs(cs[k])) k++;
+        if (k < n && cs[k] === "~") {
+          if (k === j + 1) cur += "~";
+          else {
+            if (cur) { parts.push({ t: cur }); cur = ""; }
+            parts.push({ v: cs.slice(j + 1, k).join("") });
+          }
+          j = k + 1;
+        } else { cur += "~"; j++; }
+      } else { cur += c; j++; }
+    }
+    throw new SErr("unclosed {");
+  }
+
+  function litOp(prefix, parts) {
+    const ps = [];
+    for (const p of [{ t: prefix }, ...parts]) {
+      if (p.t !== undefined) {
+        if (p.t === "") continue;
+        const last = ps[ps.length - 1];
+        if (last && last.t !== undefined) last.t += p.t;
+        else ps.push({ t: p.t });
+      } else ps.push(p);
+    }
+    if (ps.every((p) => p.t !== undefined)) return { k: "push", v: ps.length ? ps[0].t : "" };
+    return { k: "interp", parts: ps };
+  }
+
+  function parse(src) {
+    const cs = Array.from(src);
+    const n = cs.length;
+    const ops = [];
+    let i = 0;
+    while (i < n) {
+      if (isWs(cs[i])) { i++; continue; }
+      let word = "", done = false;
+      while (i < n && !isWs(cs[i])) {
+        const c = cs[i];
+        if (c === "{") {
+          const [parts, j] = brace(cs, i);
+          ops.push(litOp(word, parts));
+          word = ""; i = j; done = true; break;
+        } else if (c === "'") {
+          let j = i + 1;
+          while (j < n && cs[j] !== "'") j++;
+          if (j >= n) throw new SErr("unclosed '");
+          ops.push({ k: "push", v: word + cs.slice(i + 1, j).join("") });
+          word = ""; i = j + 1; done = true; break;
+        } else { word += c; i++; }
+      }
+      if (!done && word) ops.push(classify(word));
+    }
+    return ops;
+  }
+
+  // prng: xoshiro256** seeded through splitmix64, identical to rt.rs
+
+  const M64 = (1n << 64n) - 1n;
+  const rotl = (x, k) => ((x << BigInt(k)) | (x >> BigInt(64 - k))) & M64;
+  function splitmix(st) {
+    st.z = (st.z + 0x9E3779B97F4A7C15n) & M64;
+    let x = st.z;
+    x = ((x ^ (x >> 30n)) * 0xBF58476D1CE4E5B9n) & M64;
+    x = ((x ^ (x >> 27n)) * 0x94D049BB133111EBn) & M64;
+    return x ^ (x >> 31n);
+  }
+  class Rng {
+    constructor(a, b) {
+      const st = { z: (a ^ rotl(b, 32)) & M64 };
+      this.s = [splitmix(st), splitmix(st), splitmix(st), splitmix(st)];
+    }
+    next() {
+      const s = this.s;
+      const r = (rotl((s[1] * 5n) & M64, 7) * 9n) & M64;
+      const t = (s[1] << 17n) & M64;
+      s[2] ^= s[0]; s[3] ^= s[1]; s[1] ^= s[2]; s[0] ^= s[3]; s[2] ^= t;
+      s[3] = rotl(s[3], 45);
+      return r;
+    }
+    f64() { return Number(this.next() >> 11n) / 9007199254740992; }
+  }
+  function osU64() {
+    const a = new BigUint64Array(1);
+    crypto.getRandomValues(a);
+    return a[0];
+  }
+  const seedU = (x) => BigInt.asUintN(64, BigInt(toI64(x)));
+
+  // shell emulation over the virtual file system
+
+  function shWords(line) {
+    const out = [];
+    let cur = null, q = null;
+    for (const c of line) {
+      if (q) { if (c === q) q = null; else cur += c; continue; }
+      if (c === "'" || c === '"') { q = c; if (cur === null) cur = ""; continue; }
+      if (isWs(c)) { if (cur !== null) { out.push(cur); cur = null; } continue; }
+      cur = (cur || "") + c;
+    }
+    if (cur !== null) out.push(cur);
+    return out;
+  }
+  function shell(host, cmd) {
+    let stdout = "", code = 0;
+    for (const part of cmd.split(/;|\n/)) {
+      const w = shWords(part);
+      if (!w.length) continue;
+      const [c, ...a] = w;
+      const p = (s) => s.replace(/^\.\//, "");
+      switch (c) {
+        case "echo": {
+          const nl = a[0] !== "-n";
+          stdout += (nl ? a : a.slice(1)).join(" ") + (nl ? "\n" : ""); code = 0; break;
+        }
+        case "cat":
+          code = 0;
+          for (const f of a) {
+            const b = host.vfs.get(p(f));
+            if (b) stdout += dec.decode(b);
+            else { host.err("cat: " + f + ": No such file or directory\n"); code = 1; }
+          }
+          break;
+        case "ls": stdout += [...host.vfs.keys()].sort().join("\n") + "\n"; code = 0; break;
+        case "rm":
+          code = 0;
+          for (const f of a) if (!f.startsWith("-") && !host.vfs.delete(p(f))) { host.err("rm: cannot remove '" + f + "': No such file or directory\n"); code = 1; }
+          host.changed();
+          break;
+        case "cp": case "mv": {
+          const [x, y] = a.map(p);
+          const b = host.vfs.get(x);
+          if (!b) { host.err(c + ": cannot stat '" + x + "': No such file or directory\n"); code = 1; break; }
+          host.vfs.set(y, b.slice());
+          if (c === "mv") host.vfs.delete(x);
+          host.changed(); code = 0; break;
+        }
+        case "pwd": stdout += "/\n"; code = 0; break;
+        case "true": code = 0; break;
+        case "false": code = 1; break;
+        case "exit": return { stdout, code: a.length ? (parseInt(a[0], 10) & 255) : code };
+        default: host.err("sh: 1: " + c + ": not found\n"); code = 127;
+      }
+    }
+    return { stdout, code };
+  }
+
+  const OS2 = "No such file or directory (os error 2)";
+  const OS9 = "Bad file descriptor (os error 9)";
+  const normPath = (p) => p.replace(/^\.\//, "");
+
+  // interpreter
+
+  class Rt {
+    constructor(host, argv) {
+      this.host = host;
+      this.args = [];
+      this.ow = false;
+      this.mem = new Map();
+      this.nums = new Map();
+      this.scripts = new Map();
+      this.lists = new Map();
+      this.repl = new Map();
+      this.files = new Map();
+      this.workers = [];
+      this.units = new Map();
+      this.rng = new Rng(osU64(), osU64());
+      if (argv) {
+        this.lists.set("args", argv.slice());
+        this.nums.set("argc", argv.length);
+      }
+    }
+
+    fail(m) { throw new SErr(m); }
+    out(s) { this.host.out(s); }
+
+    need(n, c) {
+      if (this.args.length < n) this.fail(`${c}: needs ${n} args, stack has ${this.args.length}`);
+    }
+    t(i) { return text(this.args[i]); }
+    optT(i) { return i < this.args.length ? text(this.args[i]) : null; }
+    x(i) { return num(this.args[i]); }
+    dest(i, d) { return this.args.length > i ? this.t(i) : d; }
+
+    getVal(k) {
+      if (this.mem.has(k)) return this.mem.get(k);
+      if (this.nums.has(k)) return this.nums.get(k);
+      if (k === "?") return osU64().toString();
+      return "404";
+    }
+    lookup(k) { return this.dispatch(this.getVal(k)); }
+    dispatch(v) {
+      if (typeof v === "string") {
+        const c = cmdOf(v);
+        if (c) return this.cmd(c, v);
+      }
+      if (this.repl.size) {
+        const r = this.repl.get(text(v));
+        if (r !== undefined) { this.args.push(r); return false; }
+      }
+      this.args.push(v);
+      return false;
+    }
+    word(w) {
+      if (this.repl.size) {
+        const r = this.repl.get(w);
+        if (r !== undefined) { this.args.push(r); return; }
+      }
+      this.args.push(w);
+    }
+    joined() { return this.args.map(text).join(" "); }
+    setMem(k) {
+      const v = this.args.length === 1 ? this.args[0] : this.joined();
+      this.args = [];
+      this.mem.set(k, v);
+    }
+    setNum(k) {
+      const x = this.args.length ? num(this.args[0]) : 0;
+      this.args = [];
+      this.nums.set(k, x);
+    }
+    incBy(k, sign) {
+      const d = this.args.length ? num(this.args[0]) : 1;
+      this.args = [];
+      this.nums.set(k, (this.nums.has(k) ? this.nums.get(k) : 0) + sign * d);
+    }
+    takeMem(k) {
+      if (!this.mem.has(k)) return null;
+      const v = this.mem.get(k);
+      this.mem.delete(k);
+      return text(v);
+    }
+
+    defScript(k) {
+      const body = this.joined().replace(/\|/g, "~");
+      this.args = [];
+      let ops;
+      try { ops = parse(body); } catch (e) { if (e instanceof SErr) this.fail(`${k}$: ${e.message}`); throw e; }
+      this.scripts.set(k, ops);
+    }
+    callOnce(k) {
+      const sc = this.scripts.get(k);
+      if (sc) return this.exec(sc);
+      if (this.host.vfs.has(normPath(k))) return this.fileFlow(k);
+      this.fail(`${k}.: no script or file named '${k}'`);
+    }
+    drive(f) { while (f !== null) f = this.callOnce(f); }
+    call(k) { this.drive(this.callOnce(k)); }
+    count(i, w) {
+      const v = this.args[i];
+      const x = typeof v === "number" ? v : strictNum(v.trim());
+      if (x === null || !Number.isFinite(x) || x < 0 || x !== Math.trunc(x)) {
+        this.fail(`${w}: repeat count must be a whole number >= 0, got '${text(v)}'`);
+      }
+      return x;
+    }
+    repeat(k) {
+      const n = this.count(0, k + ".");
+      for (let i = 0; i < n; i++) { this.args = []; this.call(k); }
+      this.args = [];
+    }
+    callSite(k) { if (this.args.length === 1) this.repeat(k); else this.call(k); }
+    tailSite(k) { if (this.args.length === 1) { this.repeat(k); return null; } return k; }
+
+    srcFlow(src) {
+      let u = this.units.get(src);
+      if (!u) {
+        try { u = parse(src); } catch (e) { if (e instanceof SErr) this.fail("parse: " + e.message); throw e; }
+        if (this.units.size > 4096) this.units.clear();
+        this.units.set(src, u);
+      }
+      return this.exec(u);
+    }
+    runSrc(src) { this.drive(this.srcFlow(src)); }
+    fileFlow(path) {
+      const b = this.host.vfs.get(normPath(path));
+      if (!b) this.fail(`${path}: ${OS2}`);
+      return this.srcFlow(dec.decode(b));
+    }
+    runFile(path) { this.drive(this.fileFlow(path)); }
+
+    exec(ops) {
+      const n = ops.length;
+      for (let i = 0; i < n; i++) {
+        const f = this.step(ops[i], i + 1 === n);
+        if (f !== undefined) return f;
+      }
+      return null;
+    }
+    // returns undefined to continue, null to end the unit, or a script name for a tail call
+    step(op, tail) {
+      this.host.tick();
+      switch (op.k) {
+        case "push": this.args.push(op.v); break;
+        case "interp": {
+          let s = "";
+          for (const p of op.parts) s += p.t !== undefined ? p.t : text(this.getVal(p.v));
+          this.args.push(s);
+          break;
+        }
+        case "word": this.word(op.t); break;
+        case "cmd": if (this.cmd(op.c, null)) return null; break;
+        case "lookup": if (this.lookup(op.s)) return null; break;
+        case "def": this.defScript(op.s); break;
+        case "setmem": this.setMem(op.s); break;
+        case "setnum": this.setNum(op.s); break;
+        case "inc": this.incBy(op.s, 1); break;
+        case "dec": this.incBy(op.s, -1); break;
+        case "call":
+          if (tail) return this.tailSite(op.s);
+          this.callSite(op.s); break;
+        case "callpass":
+          if (tail) return op.s;
+          this.call(op.s); break;
+        case "cond":
+          if (this.ow === op.t) return this.step(op.op, tail);
+          break;
+      }
+      return undefined;
+    }
+
+    onErr(i, msg) {
+      if (this.args.length > i) {
+        const code = this.t(i);
+        this.args = [];
+        this.mem.set("err", msg);
+        this.runSrc(code);
+      } else this.fail(msg);
+    }
+    worker(x) {
+      const k = toI64(x);
+      return k >= 0 && k < this.workers.length && this.workers[k] ? k : -1;
+    }
+    list(k) {
+      let l = this.lists.get(k);
+      if (!l) { l = []; this.lists.set(k, l); }
+      return l;
+    }
+    fileBytes(path) { return this.host.vfs.get(path); }
+
+    cmd(c, w) {
+      const W = Object.keys(CMDS).find((k) => CMDS[k] === c);
+      const a = this.args;
+      switch (c) {
+        case "Print": this.out("\n" + a.map((v) => " " + text(v)).join("")); break;
+        case "PrintRaw": this.out(a.map(text).join("")); break;
+        case "Shell": {
+          this.need(1, W);
+          const r = shell(this.host, this.t(0));
+          this.mem.set("r", r.stdout);
+          this.nums.set("rc", r.code);
+          break;
+        }
+        case "ReadIn": {
+          const d = this.dest(0, "_");
+          const h = this.host;
+          if (h.stdinPos < h.stdin.length) {
+            this.mem.set(d, h.stdin[h.stdinPos++].replace(/[\r\n]+$/, ""));
+            this.mem.set("eof", 0);
+          } else {
+            this.mem.set(d, "");
+            this.mem.set("eof", 1);
+          }
+          break;
+        }
+        case "Write": {
+          this.need(2, W);
+          this.host.vfs.set(normPath(this.t(0)), enc.encode(this.t(1)));
+          this.host.changed();
+          break;
+        }
+        case "Append": {
+          this.need(2, W);
+          const p = normPath(this.t(0));
+          const old = this.host.vfs.get(p) || new Uint8Array(0);
+          const add = enc.encode(this.t(1));
+          const b = new Uint8Array(old.length + add.length);
+          b.set(old); b.set(add, old.length);
+          this.host.vfs.set(p, b);
+          this.host.changed();
+          break;
+        }
+        case "Move": {
+          this.need(2, W);
+          const [x, y] = [normPath(this.t(0)), normPath(this.t(1))];
+          const b = this.host.vfs.get(x);
+          if (!b) this.fail(`mv: ${this.t(0)} ${this.t(1)}: ${OS2}`);
+          this.host.vfs.delete(x);
+          this.host.vfs.set(y, b);
+          this.host.changed();
+          break;
+        }
+        case "Read": {
+          this.need(1, W);
+          const p = this.t(0);
+          const b = this.host.vfs.get(normPath(p));
+          if (!b) this.fail(`r: ${p}: ${OS2}`);
+          this.mem.set(p, dec.decode(b));
+          break;
+        }
+        case "ReadAt": {
+          this.need(4, W);
+          const p = this.t(0);
+          const b = this.host.vfs.get(normPath(p));
+          if (!b) this.fail(`r@: ${p}: ${OS2}`);
+          const off = toU(this.x(1)), len = toU(this.x(2));
+          this.mem.set(this.t(3), dec.decode(b.subarray(Math.min(off, b.length), Math.min(off + len, b.length))));
+          break;
+        }
+        case "Match": {
+          this.need(2, W);
+          const table = this.t(0), key = this.t(1), def = this.optT(2);
+          this.args = [];
+          const ws = table.split(/\s+/).filter((s) => s);
+          let hit = null;
+          for (let i = 0; i + 1 < ws.length; i += 2) if (ws[i] === key) { hit = ws[i + 1]; break; }
+          const code = hit !== null ? hit : def;
+          if (code !== null) this.runSrc(code);
+          return false;
+        }
+        case "Repeat": {
+          this.need(2, W);
+          const n = this.count(0, "&&&");
+          const k = this.t(1);
+          for (let i = 0; i < n; i++) {
+            this.args = [];
+            this.nums.set("n", i);
+            this.call(k);
+          }
+          break;
+        }
+        case "Par": {
+          const paths = a.map(text);
+          this.args = [];
+          const outs = paths.map((p) => {
+            const w = new Rt(this.host, null);
+            w.runFile(p);
+            const o = w.takeMem("out");
+            return o === null ? "" : o;
+          });
+          for (const o of outs) this.runSrc(o);
+          return false;
+        }
+        case "SetN": this.need(2, W); this.nums.set(this.t(1), this.x(0)); break;
+        case "Add": case "Sub": case "Mul": case "Div": case "Pow": case "Mod": {
+          this.need(2, W);
+          const x = this.x(0), y = this.x(1);
+          let r;
+          switch (c) {
+            case "Add": r = x + y; break;
+            case "Sub": r = x - y; break;
+            case "Mul": r = x * y; break;
+            case "Div": r = x / y; break;
+            case "Pow": r = Math.pow(x, y); break;
+            case "Mod": r = x % y; if (r < 0) r += Math.abs(y); break;
+          }
+          this.nums.set(this.dest(2, "="), r);
+          break;
+        }
+        case "Not": this.ow = !this.ow; break;
+        case "Eq": case "Ne": case "AndNe": case "AndEq": case "NumEq": case "Lt": case "Gt": case "Le": case "Ge": {
+          this.need(2, W);
+          const p = a[0], q = a[1];
+          switch (c) {
+            case "Eq": this.ow = valEq(p, q); break;
+            case "Ne": this.ow = !valEq(p, q); break;
+            case "AndNe": this.ow = this.ow && !valEq(p, q); break;
+            case "AndEq": this.ow = this.ow && valEq(p, q); break;
+            case "NumEq": this.ow = num(p) === num(q); break;
+            case "Lt": this.ow = num(p) < num(q); break;
+            case "Gt": this.ow = num(p) > num(q); break;
+            case "Le": this.ow = num(p) <= num(q); break;
+            case "Ge": this.ow = num(p) >= num(q); break;
+          }
+          break;
+        }
+        case "LPush": this.need(2, W); this.list(this.t(1)).push(a[0]); break;
+        case "LPop": {
+          this.need(1, W);
+          const l = this.list(this.t(0));
+          this.mem.set("$", l.length ? l.pop() : "404");
+          break;
+        }
+        case "LGet": {
+          this.need(3, W);
+          const l = this.list(this.t(0));
+          let i = toI64(this.x(1));
+          if (i < 0) i += l.length;
+          if (i >= 0 && i < l.length) this.mem.set(this.t(2), l[i]);
+          break;
+        }
+        case "LSet": {
+          this.need(3, W);
+          const l = this.list(this.t(1));
+          let i = toI64(this.x(2));
+          if (i < 0) i += l.length;
+          if (i >= 0 && i < l.length) l[i] = a[0];
+          break;
+        }
+        case "LDel": this.need(1, W); this.lists.delete(this.t(0)); break;
+        case "LLen": {
+          this.need(1, W);
+          const l = this.lists.get(this.t(0));
+          this.nums.set(this.dest(1, "="), l ? l.length : 0);
+          break;
+        }
+        case "Split": {
+          this.need(2, W);
+          const s = this.t(0), sep = this.optT(2);
+          let parts;
+          if (sep === null) parts = s.split(/\s+/).filter((x) => x);
+          else if (sep === "") parts = Array.from(s);
+          else parts = s.split(sep);
+          this.lists.set(this.t(1), parts);
+          break;
+        }
+        case "Join": {
+          this.need(2, W);
+          const l = this.lists.get(this.t(0));
+          const sep = this.optT(2);
+          this.mem.set(this.t(1), l ? l.map(text).join(sep === null ? " " : sep) : "");
+          break;
+        }
+        case "SLen": this.need(1, W); this.nums.set(this.dest(1, "="), Array.from(this.t(0)).length); break;
+        case "Open": {
+          this.need(3, W);
+          const p = normPath(this.t(0)), name = this.t(1), mode = this.t(2).replace(/b/g, "");
+          const vfs = this.host.vfs;
+          const modes = {
+            "r": [1, 0, 0, 0, 0], "w": [0, 1, 1, 1, 0], "a": [0, 1, 1, 0, 1],
+            "r+": [1, 1, 0, 0, 0], "w+": [1, 1, 1, 1, 0], "a+": [1, 1, 1, 0, 1],
+          };
+          const m = modes[mode];
+          let err = null;
+          if (!m) err = `bad mode '${this.t(2)}'`;
+          else if (!vfs.has(p) && !m[2]) err = OS2;
+          if (err) { this.onErr(3, `f: ${this.t(0)}: ${err}`); return false; }
+          if (!vfs.has(p) || m[3]) { vfs.set(p, new Uint8Array(0)); this.host.changed(); }
+          this.files.set(name, { path: p, pos: 0, eof: false, rd: !!m[0], wr: !!m[1], app: !!m[4] });
+          break;
+        }
+        case "FWriteAt": {
+          this.need(3, W);
+          const name = this.t(0), off = toU(this.x(1)), key = this.t(2);
+          const h = this.files.get(name);
+          const err = !h ? "no open file" : !h.wr ? OS9 : null;
+          if (err) { this.onErr(3, `+f: ${name}: ${err}`); return false; }
+          const data = enc.encode(this.mem.has(key) ? text(this.mem.get(key)) : "");
+          this.writeAt(h, h.app ? null : off, data);
+          break;
+        }
+        case "FReadAt": {
+          this.need(4, W);
+          const name = this.t(0), off = toU(this.x(1)), len = toU(this.x(2));
+          const h = this.files.get(name);
+          if (!h) this.fail(`@f: ${name}: no open file`);
+          if (!h.rd) this.fail(`@f: ${name}: ${OS9}`);
+          const b = this.host.vfs.get(h.path) || new Uint8Array(0);
+          const got = b.subarray(Math.min(off, b.length), Math.min(off + len, b.length));
+          h.pos = off + got.length;
+          h.eof = got.length < len;
+          this.mem.set(this.t(3), dec.decode(got));
+          break;
+        }
+        case "FClose": this.need(1, W); this.files.delete(this.t(0)); break;
+        case "FWriteLn": {
+          this.need(2, W);
+          const name = this.t(0);
+          const h = this.files.get(name);
+          const err = !h ? "no open file" : !h.wr ? OS9 : null;
+          if (err) { this.onErr(2, `f_: ${name}: ${err}`); return false; }
+          this.writeAt(h, h.app ? null : h.pos, enc.encode(this.t(1) + "\n"));
+          break;
+        }
+        case "FReadLn": {
+          this.need(2, W);
+          const name = this.t(0);
+          const h = this.files.get(name);
+          if (!h) this.fail(`_f: ${name}: no open file`);
+          if (!h.rd) this.fail(`_f: ${name}: ${OS9}`);
+          const b = this.host.vfs.get(h.path) || new Uint8Array(0);
+          if (h.pos >= b.length) { h.eof = true; this.mem.set(this.t(1), ""); break; }
+          let e = b.indexOf(10, h.pos);
+          const end = e < 0 ? b.length : e;
+          let line = b.subarray(h.pos, end);
+          if (line.length && line[line.length - 1] === 13) line = line.subarray(0, line.length - 1);
+          h.pos = e < 0 ? b.length : e + 1;
+          h.eof = false;
+          this.mem.set(this.t(1), dec.decode(line));
+          break;
+        }
+        case "Eof": {
+          this.need(1, W);
+          const h = this.files.get(this.t(0));
+          this.mem.set("eof", !h || h.eof ? 1 : 0);
+          break;
+        }
+        case "Spawn": {
+          for (const p of a.map(text)) {
+            const w = new Rt(this.host, null);
+            w.runFile(p);
+            this.workers.push({ rt: w, results: [], stopped: false });
+            this.nums.set("threads", this.workers.length - 1);
+          }
+          break;
+        }
+        case "Kill": {
+          this.need(1, W);
+          const k = this.worker(this.x(0));
+          if (k < 0) this.mem.set("err", "Invalid thread index");
+          else this.workers[k] = null;
+          break;
+        }
+        case "Send": {
+          this.need(2, W);
+          const m = this.t(0);
+          const k = this.worker(this.x(1));
+          if (k < 0) { this.mem.set("err", "Invalid thread index"); break; }
+          const wk = this.workers[k];
+          if (wk.stopped) { this.mem.set("err", "thread closed"); break; }
+          if (m === "__stop__") { wk.stopped = true; break; }
+          wk.rt.runSrc(m);
+          const o = wk.rt.takeMem("out");
+          if (o !== null) wk.results.push(o);
+          break;
+        }
+        case "Recv": {
+          this.need(1, W);
+          const k = this.worker(this.x(0));
+          this.args = [];
+          if (k < 0) { this.mem.set("err", "Invalid thread index"); return false; }
+          const wk = this.workers[k];
+          if (wk.results.length) this.runSrc(wk.results.shift());
+          else if (wk.stopped) this.mem.set("err", "thread closed");
+          else this.fail(`>t: worker ${k} has no pending result; the program would wait forever`);
+          return false;
+        }
+        case "PrngN": case "PrngS": {
+          if (a.length === 1) this.rng = new Rng(seedU(this.x(0)), 0n);
+          else if (a.length > 1) this.rng = new Rng(seedU(this.x(0)), seedU(this.x(1)));
+          const d = this.dest(2, "rn");
+          if (c === "PrngN") this.nums.set(d, this.rng.f64());
+          else {
+            const AZ = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            let s = "";
+            for (let i = 0; i < 32; i++) s += AZ[Number(this.rng.next() % 52n)];
+            this.mem.set(d, s);
+          }
+          break;
+        }
+        case "Replace": this.need(2, W); this.repl.set(this.t(1), a[0]); break;
+        case "Comment": break;
+        case "Ret": return true;
+        case "Exit": throw new SExit(a.length ? Math.max(-2147483648, Math.min(2147483647, toI64(num(a[0])))) : 0);
+      }
+      this.args = [];
+      return false;
+    }
+
+    writeAt(h, off, data) {
+      const vfs = this.host.vfs;
+      const old = vfs.get(h.path) || new Uint8Array(0);
+      const at = off === null ? old.length : off;
+      const b = new Uint8Array(Math.max(old.length, at + data.length));
+      b.set(old);
+      b.set(data, at);
+      vfs.set(h.path, b);
+      h.pos = at + data.length;
+      this.host.changed();
+    }
+
+    state() {
+      const obj = (m) => [...m].map(([k, v]) => [k, text(v)]);
+      return {
+        stack: this.args.map(text),
+        ow: this.ow,
+        mem: obj(this.mem),
+        nums: obj(this.nums),
+        lists: [...this.lists].map(([k, l]) => [k, l.map(text)]),
+        scripts: [...this.scripts.keys()],
+        repl: obj(this.repl),
+      };
+    }
+  }
+
+  // runs a program; host: { vfs: Map<path, Uint8Array>, out, err, stdin: string[], tick, changed }
+  function run(host, path, argv) {
+    host.stdinPos = 0;
+    const rt = new Rt(host, argv);
+    let code = 0, error = null;
+    try {
+      rt.runFile(path);
+    } catch (e) {
+      if (e instanceof SExit) code = e.code;
+      else if (e instanceof SErr) { error = e.message; code = 1; }
+      else if (e instanceof RangeError) { error = "recursion too deep: " + e.message; code = 1; }
+      else throw e;
+    }
+    return { code, error, state: rt.state() };
+  }
+
+  return { parse, classify, cmdOf, CMDS, SUFFIX, run, Rt, fmtNum, canon, SErr, isWs };
+})();
+if (typeof module !== "undefined") module.exports = SRT;
+
+</script>
+<script>
+"use strict";
+const EXAMPLES = [{"id":"tour","name":"tour (main.s)","files":[["main.s","{values stack up from the left; the word at the right acts on them} //\nhello from s >\n6 7 *  =~ >\n\n{a script body is a brace literal; lookups in it run when it is called} //\n{n~ fact~ fact *  n:  n~ 1 >>  step..?} step$\n5 n#  1 fact#  step.\n{5! = ~fact~} >\n\n{a call in tail position loops in constant space} //\n{i~ >_ { } >_  i;  i~ 10 \u003c\u003c  count..?} count$\n>  0 i#  count.\n\n{conditions set ow; ? and ! run a word only when ow is true or false} //\n3 4 \u003c\u003c  smaller? larger! >\n\n{lists, split into characters, and a table lookup} //\n{a 1 b 2 c 3 d 4 e 5} small`\n{dabbed} cs {} /l\n{cs i~ ch [l]  small~ {~ch~} 0 ?)  sum~ sum +  i;  i~ len~ \u003c\u003c  add..?} add$\ncs len #l  0 i#  0 sum#  add.\n{dabbed sums to ~sum~} >\n"]]},{"id":"gematria","name":"gematria","files":[["gematria.s","{a 1 b 2 c 3 d 4 e 5 f 6 g 7 h 8 i 9 j 10 k 11 l 12 m 13 n 14 o 15 p 16 q 17 r 18 s 19 t 20 u 21 v 22 w 23 x 24 y 25 z 26} ord`\n{letters i~ ch [l]  ord~ {~ch~} 0 ?)  sum~ sum +  i;  i~ len~ \u003c\u003c  letter..?} letter$\n{{~word~} letters {} /l  letters len #l  0 i#  0 sum#  letter.  {~word~ ~sum~} >} gem$\n{args j~ word [l]  gem.  j;  j~ argc~ \u003c\u003c  each..?} each$\n{{gematria memory base} args /l  args argc #l} defaults$\nargc~ 0 =  defaults.?\n0 j#  each.\n"]]},{"id":"lines","name":"stdin lines","files":[["lines.s","{lines from the stdin box, until it runs out} //\n{_ \u003c_  eof~ 1 =  \u003c-?  {~_~} words /l  words #l  {~_~ · ~=~ words} >  each..} each$\neach.\n"]],"stdin":"the quick brown fox\njumps\nover the lazy dog"},{"id":"scripts","name":"scripts and calls","files":[["scripts.s","{hi from greet >} greet$\ngreet.\n3 greet.\n0 greet.\n{n~ >} shown$\n4 shown &&&\n{x y} pass$ pass. >\n{a b} {c} joined$ joined. >\n{count~ >  count:  count~ 0 >>  down.?} down$\n3 count#  down.\n{{inner n~ >} in$ in.} out$\n42 n#  out.\n{early >  \u003c-  never >} ret$  ret.\n{r1 >} p$ q v p..\n{left on stack} leave$ leave. >\n"]]},{"id":"tail","name":"tail calls","files":[["tail.s","1000000 i#  0 acc#\n{i~ acc~ acc +  i:  i~ 0 >>  spin.?} spin$ spin.\nacc~ >\n{d;  d~ 200000 \u003c\u003c  deep..?} deep$ 0 d# deep.\nd~ >\n"]]},{"id":"cond","name":"conditions","files":[["cond.s","a a =  yes? no! >\na b =  yes? no! >\na b !=  yes? no! >\n3 3.0 =  yes? no! >\n3 3.0 ==  yes? no! >\n2 3 \u003c\u003c  lt? >\n2 3 >>  gt! >\n3 3 \u003c\u003c=  le? >\n4 3 >>=  ge? >\n!!  flipped! >\na a =  b c ;  and-not-equal? >\na a =  b b &  and-equal? >\na a =  b c &  and-equal! >\n1 1 =  >?  shown >?\n1 2 =  hidden >?\n"]]},{"id":"lists","name":"lists","files":[["lists.s","a xs l  b xs l  c xs l\nxs #l  =~ >\nxs 1 got [l]  got~ >\nxs -1 got [l]  got~ >\nxs 9 got [l]  got~ >\nZ xs 0 l=  xs out l/  out~ >\nxs -l  $~ >\nxs out {,} l/  out~ >\nxs l-  xs #l  =~ >\n{the quick  brown fox} words /l  words #l  =~ >\nwords out {-} l/  out~ >\ngematria letters {} /l  letters #l  =~ >\nletters out {.} l/  out~ >\na,b,,c parts {,} /l  parts #l  =~ >\n{héllo} #s  =~ >\n"]]},{"id":"match","name":"?) tables","files":[["match.s","{a one. b two. c three.} table`\n{first >} one$ {second >} two$ {third >} three$\ntable~ b ?)\ntable~ c ?)\ntable~ z {fallback >} ?)\ntable~ a {fallback >} ?)\n{k1 v1 k2 v2} k2 ?) >\n"]]},{"id":"basics","name":"literals","files":[["basics.s","hello world >\n3 4 + =~ >\n3 4 sum +  sum~ >\n10 3 %  =~ >\n-7 3 %  =~ >\n2 10 ^  =~ >\n1 3 /  =~ >\n0.1 0.2 +  =~ >\n{a b c} x`\n{x is ~x~} >\nx~ >\n'raw ~x~ {b}' >\n{one} {two} >_ { } >_ three >_\n{tilde ~~ and ~ alone and ~missing~} >\n{nested {inner ~x~} kept} >\npre{fix} pre'quote' >\n"]]},{"id":"files","name":"files and shell","files":[["files.s","tmp_files.txt {line one} w\ntmp_files.txt {\nline two} +w\ntmp_files.txt r  tmp_files.txt~ >\ntmp_files.txt 5 3 part r@  part~ >\ntmp_files.txt h {r} f\nh l1 _f  l1~ >  h ?eof  eof~ >\nh l2 _f  l2~ >  h ?eof  eof~ >\nh l3 _f  {[~l3~]} >  h ?eof  eof~ >\nh f-\ntmp_files2.txt h2 {w} f\nh2 first f_  h2 second f_  h2 f-\ntmp_files2.txt r  tmp_files2.txt~ >\n{XY} patch`\ntmp_files2.txt h3 r+ f  h3 0 patch +f  h3 0 4 got @f  got~ >  h3 f-\ntmp_files2.txt tmp_files3.txt mv\ntmp_files3.txt r  tmp_files3.txt~ >\nmissing_dir/x.txt hz {r} {err~ >  could not open >} f\n{echo shell; exit 3} \u003c  r~ rc~ >\n{rm tmp_files.txt tmp_files3.txt} \u003c\n"]]},{"id":"threads","name":"threads","files":[["threads.s","threads_worker.s t\n{ping msg` handle.} 0 \u003ct\n0 >t\n{pong msg` handle.} 0 \u003ct\n0 >t\n0 -t\n{x} 0 \u003ct  err~ >\npar_a.s par_b.s ***\n"],["threads_worker.s","0 hits#\n{hits;  {'got ~msg~ hits ~hits~' >} out`} handle$\n"],["par_a.s","{{from a} >} out`\n"],["par_b.s","6 7 *  {'from b ~=~' >} out`\n"]]}];
+
+const G = {
+  io: ["output, input, shell", "--c-io"],
+  file: ["files", "--c-file"],
+  num: ["numbers", "--c-num"],
+  cond: ["conditions → ow", "--c-cond"],
+  list: ["lists and text", "--c-list"],
+  code: ["code", "--c-code"],
+  thread: ["threads", "--c-thread"],
+};
+
+const LITS = [
+  { g: "lit", w: "{ }", ins: "brace", sig: "{text}", d: "Brace literal: pushes the text up to the matching }. Braces nest. At depth 1, ~name~ interpolates when the literal is evaluated; deeper braces stay raw.", hint: "With a selection, wraps it." },
+  { g: "lit", w: "' '", ins: "quote", sig: "'text'", d: "Quote literal: pushes raw text up to the next '. No interpolation." },
+  { g: "lit", w: "~x~", ins: "interp", sig: "{… ~name~ …}", d: "Interpolation inside braces at depth 1. The name has no whitespace. ~~ is a literal ~." },
+  { g: "lit", w: "|", ins: "raw:|", sig: "{x| >} name$", d: "Inside a script body, | becomes ~ when the script is defined: x| is the deferred lookup x~." },
+];
+const SFX = [
+  { w: "~", sig: "x~", d: "Look up x (mem, then numbers, ? gives a random u64, else 404) and dispatch the value: a command name runs, anything else is pushed.", hint: "{~x~} pushes the value as data." },
+  { w: "`", sig: "… x`", d: "mem[x] = the stack joined with spaces (one value is kept as is). Clears the stack." },
+  { w: "#", sig: "value x#", d: "numbers[x] = first value (0 if none). Clears the stack." },
+  { w: ";", sig: "[by] x;", d: "numbers[x] += by (default 1). Clears the stack." },
+  { w: ":", sig: "[by] x:", d: "numbers[x] −= by (default 1). Clears the stack." },
+  { w: "$", sig: "body… x$", d: "Define script x from the stack joined with spaces; | becomes ~. Clears the stack." },
+  { w: ".", sig: "x.", d: "Call x. With exactly one value on the stack it is a repeat count. Otherwise x runs on the current stack. Falls back to a file named x. Tail position loops in constant space." },
+  { w: "..", sig: "x..", d: "Call x once on the current stack, never as a repeat." },
+  { w: "?", sig: "word?", d: "Act as word only when ow is true. Composes: >?  x~?  loop.?  <-?", cond: 1 },
+  { w: "!", sig: "word!", d: "Act as word only when ow is false.", cond: 1 },
+];
+const CMDDOC = [
+  ["io", ">", "values… >", "Write a newline, then each value preceded by one space."],
+  ["io", ">_", "values… >_", "Write each value with no separators and no newline."],
+  ["io", "<_", "[dest] <_", "Read one stdin line into mem[dest] (default _). mem[eof] = 1 at end of input."],
+  ["io", "<", "cmd <", "Run a shell command; mem[r] = stdout, numbers[rc] = exit code.", "In the browser a small built-in shell runs echo, cat, ls, rm, cp, mv, pwd, true, false, exit over the editor's files."],
+  ["file", "w", "path text w", "Write a file."],
+  ["file", "+w", "path text +w", "Append to a file, creating it."],
+  ["file", "mv", "from to mv", "Move a file, overwriting."],
+  ["file", "r", "path r", "mem[path] = file contents."],
+  ["file", "r@", "path off len dest r@", "mem[dest] = up to len bytes from byte off."],
+  ["file", "f", "path name mode [err] f", "Open a handle. Modes r w a r+ w+ a+. With err given, a failure sets mem[err] and runs err."],
+  ["file", "+f", "name off key [err] +f", "Write mem[key] at byte off."],
+  ["file", "@f", "name off len dest @f", "mem[dest] = up to len bytes at off; eof flag when fewer were read."],
+  ["file", "f_", "name text [err] f_", "Write text and a newline at the current position."],
+  ["file", "_f", "name dest _f", "mem[dest] = next line; eof flag when no line was read."],
+  ["file", "?eof", "name ?eof", "mem[eof] = 1 when the handle is at end (or missing), else 0."],
+  ["file", "f-", "name f-", "Close a handle."],
+  ["num", "+", "a b [dest] +", "numbers[dest] = a + b (dest defaults to =)."],
+  ["num", "-", "a b [dest] -", "numbers[dest] = a − b."],
+  ["num", "*", "a b [dest] *", "numbers[dest] = a × b."],
+  ["num", "/", "a b [dest] /", "numbers[dest] = a ÷ b."],
+  ["num", "^", "a b [dest] ^", "numbers[dest] = a to the power b."],
+  ["num", "%", "a b [dest] %", "numbers[dest] = Euclidean remainder of a by b."],
+  ["num", "n", "value name n", "numbers[name] = value."],
+  ["num", "#prng", "[seed [seed2 [dest]]] #prng", "With a seed, reseed; numbers[dest] (default rn) = next float in [0, 1). Same seeds give the same sequence as the Rust build."],
+  ["num", "`prng", "[seed [seed2 [dest]]] `prng", "As #prng; mem[dest] = 32 letters from a-zA-Z."],
+  ["cond", "=", "a b =", "ow = same text."],
+  ["cond", "!=", "a b !=", "ow = different text."],
+  ["cond", "&", "a b &", "ow = ow and same text."],
+  ["cond", ";", "a b ;", "ow = ow and different text."],
+  ["cond", "==", "a b ==", "ow = equal as numbers."],
+  ["cond", "<<", "a b <<", "ow = a < b."],
+  ["cond", ">>", "a b >>", "ow = a > b."],
+  ["cond", "<<=", "a b <<=", "ow = a ≤ b."],
+  ["cond", ">>=", "a b >>=", "ow = a ≥ b."],
+  ["cond", "!!", "!!", "ow = not ow."],
+  ["list", "l", "value list l", "Append value to list."],
+  ["list", "-l", "list -l", "mem[$] = removed last item, 404 when empty."],
+  ["list", "[l]", "list i dest [l]", "mem[dest] = item i; negative i counts from the end."],
+  ["list", "l=", "value list i l=", "Item i = value."],
+  ["list", "l-", "list l-", "Delete the list."],
+  ["list", "#l", "list [dest] #l", "numbers[dest] = length."],
+  ["list", "/l", "text list [sep] /l", "Split text into list: on whitespace, into characters with {} as sep, or on sep."],
+  ["list", "l/", "list dest [sep] l/", "mem[dest] = items joined with sep (default space)."],
+  ["list", "#s", "text [dest] #s", "numbers[dest] = number of characters."],
+  ["code", "?)", "table key [default] ?)", "table holds pairs k v; the v for key (or default) runs as code and leaves its stack."],
+  ["code", "&&&", "count name &&&", "Call name count times; numbers[n] = 0 … count−1."],
+  ["code", "><", "value word ><", "From now on the word pushes value instead."],
+  ["code", "//", "notes… //", "Clear the stack: a comment stands to the left of //. {any text} // may hold command words."],
+  ["code", "<-", "<-", "End the current script or unit; the stack is kept as its result."],
+  ["code", "<--", "[code] <--", "End the program with an exit code."],
+  ["thread", "t", "path… t", "Start a worker per file; numbers[threads] = last index."],
+  ["thread", "<t", "code i <t", "Send code to worker i; it runs it and returns mem[out] if set."],
+  ["thread", ">t", "i >t", "Take worker i's next result and run it here.", "In the browser workers run in step with the program, so results are ready as soon as code is sent."],
+  ["thread", "-t", "i -t", "Stop worker i."],
+  ["thread", "***", "path… ***", "Run each file in a fresh interpreter, then run each one's mem[out] here, in order."],
+];
+const CMDINFO = new Map(CMDDOC.map(([g, w, sig, d, hint]) => [w, { g, w, sig, d, hint }]));
+const SFXINFO = new Map(SFX.map((s) => [s.w, s]));
+
+const $ = (id) => document.getElementById(id);
+const ta = $("src"), hl = $("hl"), ed = $("ed");
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+// state
+
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem("s-editor-v1") || "null"); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem("s-editor-v1", JSON.stringify(v)); } catch (e) {} },
+};
+const TOUR = EXAMPLES.find((e) => e.id === "tour");
+let S = store.get() || {
+  files: TOUR.files.concat(EXAMPLES.find((e) => e.id === "gematria").files),
+  active: "main.s", stdin: "", argv: "", align: "right", size: 15, live: false,
+};
+if (!S.files.length) S.files = TOUR.files.slice();
+if (!S.files.some((f) => f[0] === S.active)) S.active = S.files[0][0];
+const save = () => store.set(S);
+const fileIdx = (p) => S.files.findIndex((f) => f[0] === p);
+const cur = () => S.files[fileIdx(S.active)];
+
+// lexer for highlighting and the token readout
+
+const GROUP_OF = new Map(CMDDOC.map(([g, w]) => [w, g]));
+function lex(src) {
+  const toks = [];
+  const n = src.length;
+  const cp = (i) => { const c = src.codePointAt(i); return [String.fromCodePoint(c), c > 0xffff ? 2 : 1]; };
+  let i = 0;
+  while (i < n) {
+    let [c, l] = cp(i);
+    if (SRT.isWs(c)) { i += l; continue; }
+    const start = i;
+    let word = "", wstart = i;
+    let done = false;
+    while (i < n) {
+      [c, l] = cp(i);
+      if (SRT.isWs(c)) break;
+      if (c === "{") {
+        const segs = [];
+        if (i > wstart) segs.push({ from: wstart, to: i, k: "brace" });
+        let depth = 1, j = i + 1, ok = false;
+        segs.push({ from: i, to: i + 1, k: "bracedelim" });
+        let run = j;
+        const flush = (to, k) => { if (to > run) segs.push({ from: run, to, k }); };
+        while (j < n) {
+          const [d, dl] = cp(j);
+          if (d === "{") { if (depth === 1) flush(j, "brace"), run = j; depth++; j += dl; }
+          else if (d === "}") {
+            depth--;
+            if (depth === 0) { flush(j, "brace"); segs.push({ from: j, to: j + 1, k: "bracedelim" }); j++; ok = true; break; }
+            if (depth === 1) { flush(j + 1, "raw"); run = j + 1; }
+            j += dl;
+          } else if (d === "~" && depth === 1) {
+            let k = j + 1;
+            while (k < n && src[k] !== "~" && src[k] !== "{" && src[k] !== "}" && !SRT.isWs(src[k])) k++;
+            if (k < n && src[k] === "~" && k > j + 1) { flush(j, "brace"); segs.push({ from: j, to: k + 1, k: "interp", name: src.slice(j + 1, k) }); run = k + 1; j = k + 1; }
+            else if (k < n && src[k] === "~") j = k + 1;
+            else j += dl;
+          } else j += dl;
+        }
+        if (!ok) { toks.push({ from: wstart, to: n, kind: "err", segs: [{ from: wstart, to: n, k: "err" }], msg: "unclosed {" }); return toks; }
+        const interps = segs.filter((s) => s.k === "interp");
+        const inner = lex(src.slice(i + 1, j - 1)).map((t) => shift(t, i + 1));
+        const body = [];
+        if (i > wstart) body.push({ from: wstart, to: i, k: "brace" });
+        body.push({ from: i, to: i + 1, k: "bracedelim" });
+        for (const t of inner) {
+          const hits = interps.filter((s) => s.from < t.to && s.to > t.from);
+          if (t.kind === "err") body.push({ from: t.from, to: t.to, k: "brace" });
+          else if (hits.length) {
+            let p = t.from;
+            for (const h of hits) { if (h.from > p) body.push({ from: p, to: h.from, k: "brace" }); body.push(h); p = h.to; }
+            if (t.to > p) body.push({ from: p, to: t.to, k: "brace" });
+          } else if (t.comment) body.push({ from: t.from, to: t.to, k: "comment" });
+          else for (const s of t.segs) body.push(s);
+        }
+        body.push({ from: j - 1, to: j, k: "bracedelim" });
+        toks.push({ from: wstart, to: j, kind: "brace", segs: body, interps, inner });
+        i = j; done = true; break;
+      }
+      if (c === "'") {
+        let j = i + 1;
+        while (j < n && src[j] !== "'") j++;
+        if (j >= n) { toks.push({ from: wstart, to: n, kind: "err", segs: [{ from: wstart, to: n, k: "err" }], msg: "unclosed '" }); return toks; }
+        toks.push({ from: wstart, to: j + 1, kind: "quote", segs: [{ from: wstart, to: j + 1, k: "quote" }] });
+        i = j + 1; done = true; break;
+      }
+      word += c; i += l;
+    }
+    if (!done && word) toks.push(wordTok(word, start, i));
+  }
+  // a comment is the run of literals standing left of //
+  for (let t = 0; t < toks.length; t++) {
+    if (toks[t].kind === "cmd" && toks[t].word === "//") {
+      for (let u = t - 1; u >= 0 && ["word", "num", "brace", "quote"].includes(toks[u].kind); u--) toks[u].comment = true;
+    }
+  }
+  return toks;
+}
+function shift(t, d) {
+  const u = Object.assign({}, t, { from: t.from + d, to: t.to + d });
+  u.segs = t.segs.map((s) => Object.assign({}, s, { from: s.from + d, to: s.to + d }));
+  if (t.interps) u.interps = t.interps.map((s) => Object.assign({}, s, { from: s.from + d, to: s.to + d }));
+  if (t.inner) u.inner = t.inner.map((x) => shift(x, d));
+  return u;
+}
+function wordTok(w, from, to) {
+  const op = SRT.classify(w);
+  const t = { from, to, word: w, op };
+  if (op.k === "cmd") { t.kind = "cmd"; t.segs = [{ from, to, k: GROUP_OF.get(w) || "code" }]; return t; }
+  if (op.k === "word") {
+    t.kind = SRT.canon(w) !== null ? "num" : "word";
+    t.segs = [{ from, to, k: t.kind === "num" ? "numlit" : "word" }];
+    return t;
+  }
+  t.kind = "sfx";
+  // peel suffixes from the right
+  const segs = [];
+  let end = to, o = op;
+  while (o && (o.k === "cond")) { segs.unshift({ from: end - 1, to: end, k: "sfx-cond" }); end--; o = o.op; }
+  const inner = { lookup: ["stem-lookup", 1], def: ["stem-def", 1], setmem: ["stem-set", 1], setnum: ["stem-set", 1], inc: ["stem-set", 1], dec: ["stem-set", 1], call: ["stem-call", 1], callpass: ["stem-call", 2] }[o.k];
+  if (inner) {
+    segs.unshift({ from: end - inner[1], to: end, k: "sfx" });
+    segs.unshift({ from, to: end - inner[1], k: inner[0] });
+  } else if (o.k === "cmd") segs.unshift({ from, to: end, k: GROUP_OF.get(o.c && Object.keys(SRT.CMDS).find((k) => SRT.CMDS[k] === o.c)) || "code" });
+  else segs.unshift({ from, to: end, k: SRT.canon(w.slice(0, end - from)) !== null ? "numlit" : "word" });
+  t.segs = segs;
+  return t;
+}
+
+function render() {
+  const src = ta.value;
+  const toks = lex(src);
+  let html = "", at = 0;
+  for (const t of toks) {
+    if (t.from > at) html += esc(src.slice(at, t.from));
+    let inner = "", p = t.from;
+    for (const s of t.segs) {
+      if (s.from > p) inner += esc(src.slice(p, s.from));
+      inner += `<span class="k-${s.k}">${esc(src.slice(s.from, s.to))}</span>`;
+      p = s.to;
+    }
+    if (t.to > p) inner += esc(src.slice(p, t.to));
+    html += t.comment ? `<span class="k-comment">${inner}</span>` : t.kind === "brace" ? `<span class="k-body">${inner}</span>` : inner;
+    at = t.to;
+  }
+  html += esc(src.slice(at)) + "\n ";
+  hl.innerHTML = html;
+  syncBox();
+  lastToks = toks;
+  readout();
+}
+let lastToks = [];
+function syncBox() {
+  hl.style.width = ta.clientWidth + "px";
+  hl.style.height = ta.clientHeight + "px";
+  hl.scrollTop = ta.scrollTop;
+  hl.scrollLeft = ta.scrollLeft;
+}
+
+// token readout under the caret
+
+function describe(t) {
+  if (t.kind === "err") return `<code>${esc(t.msg)}</code> — close it before running`;
+  if (t.comment) return `comment text, cleared by <code>//</code>`;
+  if (t.kind === "brace") {
+    const vars = t.interps.map((s) => s.name);
+    return "brace literal" + (vars.length ? ` · interpolates ${vars.map((v) => `<code>${esc(v)}</code>`).join(", ")}` : "");
+  }
+  if (t.kind === "quote") return "quote literal · raw text";
+  if (t.kind === "num") return `number literal <code>${esc(t.word)}</code>`;
+  if (t.kind === "word") return `literal word <code>${esc(t.word)}</code> · pushed as text`;
+  if (t.kind === "cmd") { const c = CMDINFO.get(t.word); return c ? `<code>${esc(c.sig)}</code> — ${esc(c.d)}` : ""; }
+  const parts = [];
+  let o = t.op;
+  while (o.k === "cond") { parts.push(o.t ? "when ow is true:" : "when ow is false:"); o = o.op; }
+  const n = (s) => `<code>${esc(s)}</code>`;
+  const what = {
+    lookup: () => `look up ${n(o.s)} and dispatch it`,
+    def: () => `define script ${n(o.s)} from the stack`,
+    setmem: () => `mem[${n(o.s)}] = the stack`,
+    setnum: () => `numbers[${n(o.s)}] = first value`,
+    inc: () => `numbers[${n(o.s)}] += first value or 1`,
+    dec: () => `numbers[${n(o.s)}] −= first value or 1`,
+    call: () => `call ${n(o.s)} (one value on the stack = repeat count)`,
+    callpass: () => `call ${n(o.s)} once on the current stack`,
+    cmd: () => { const w = Object.keys(SRT.CMDS).find((k) => SRT.CMDS[k] === o.c); const c = CMDINFO.get(w); return c ? `${n(c.sig)} — ${esc(c.d)}` : ""; },
+    word: () => `push ${n(t.word.slice(0, t.word.length - parts.length))}`,
+  }[o.k];
+  return parts.join(" ") + " " + (what ? what() : "");
+}
+function readout() {
+  const p = ta.selectionStart;
+  const before = ta.value.slice(0, p);
+  const line = before.split("\n").length;
+  const col = p - before.lastIndexOf("\n");
+  $("pos").textContent = `${line}:${col}`;
+  let t = lastToks.find((t) => p >= t.from && p <= t.to), depth = 0;
+  while (t && t.kind === "brace") {
+    const h = t.interps.find((s) => p >= s.from && p <= s.to);
+    if (h) { $("tokinfo").innerHTML = `interpolates <code>${esc(h.name)}</code> when the literal is evaluated`; return; }
+    const u = t.inner.find((x) => p >= x.from && p <= x.to);
+    if (!u || p === t.from || p === t.to) break;
+    t = u; depth++;
+  }
+  $("tokinfo").innerHTML = t ? (depth ? `<span style="color:var(--c-brace)">in {…} ×${depth}</span> · ` : "") + describe(t) : "";
+}
+
+// editing
+
+function insertText(text, selFrom, selTo) {
+  ta.focus();
+  const s = ta.selectionStart;
+  let ok = false;
+  try { ok = document.execCommand("insertText", false, text); } catch (e) {}
+  if (!ok) { ta.setRangeText(text, s, ta.selectionEnd, "end"); onEdit(); }
+  if (selFrom !== undefined) ta.setSelectionRange(s + selFrom, s + selTo);
+}
+const isWsAt = (i) => i < 0 || i >= ta.value.length || SRT.isWs(ta.value[i]);
+function insertWord(w) {
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const pre = isWsAt(s - 1) ? "" : " ";
+  const post = isWsAt(e) ? "" : " ";
+  insertText(pre + w + post, pre.length + w.length + post.length, pre.length + w.length + post.length);
+}
+function insertSuffix(x) {
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  if (s !== e) { insertText(ta.value.slice(s, e) + x); return; }
+  const prev = ta.value[s - 1];
+  if (s > 0 && !SRT.isWs(prev) && prev !== "}" && prev !== "'") { insertText(x); return; }
+  const pre = isWsAt(s - 1) ? "" : " ";
+  insertText(pre + "name" + x, pre.length, pre.length + 4);
+}
+function insertTemplate(kind) {
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const sel = ta.value.slice(s, e);
+  if (kind === "interp") { insertText("~name~", 1, 5); return; }
+  if (kind.startsWith("raw:")) { insertText(kind.slice(4)); return; }
+  const [o, c] = kind === "brace" ? ["{", "}"] : ["'", "'"];
+  const pre = sel || isWsAt(s - 1) ? "" : " ";
+  insertText(pre + o + sel + c, pre.length + 1, pre.length + 1 + sel.length);
+}
+
+let liveTimer = 0;
+function onEdit() {
+  const f = cur();
+  if (f) f[1] = ta.value;
+  save();
+  render();
+  if (S.live) { clearTimeout(liveTimer); liveTimer = setTimeout(() => run(true), 380); }
+}
+ta.addEventListener("input", onEdit);
+ta.addEventListener("scroll", syncBox);
+["keyup", "click", "select"].forEach((ev) => ta.addEventListener(ev, readout));
+document.addEventListener("selectionchange", () => { if (document.activeElement === ta) readout(); });
+let escPressed = false;
+ta.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); run(false); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); flash("Saved in this browser"); return; }
+  if (e.key === "Escape") { escPressed = true; return; }
+  if (e.key === "Tab" && !escPressed && !e.shiftKey) { e.preventDefault(); insertText("  "); }
+  if (e.key === "{" && ta.selectionStart !== ta.selectionEnd) { e.preventDefault(); insertTemplate("brace"); }
+  if (e.key === "'" && ta.selectionStart !== ta.selectionEnd) { e.preventDefault(); insertTemplate("quote"); }
+  escPressed = false;
+});
+new ResizeObserver(syncBox).observe(ta);
+
+// tabs
+
+function renderTabs() {
+  const box = $("tabs");
+  box.innerHTML = "";
+  for (const [p] of S.files) {
+    const t = document.createElement("div");
+    t.className = "tab" + (p === S.active ? " on" : "");
+    t.setAttribute("role", "button");
+    t.tabIndex = 0;
+    const name = document.createElement("span");
+    name.textContent = p;
+    t.append(name);
+    t.title = "Open " + p + " · double-click to rename";
+    t.onclick = () => openFile(p);
+    t.onkeydown = (e) => { if (e.key === "Enter") openFile(p); };
+    t.ondblclick = () => renameTab(t, p);
+    if (S.files.length > 1) {
+      const x = document.createElement("button");
+      x.className = "x"; x.textContent = "×"; x.title = "Delete " + p;
+      x.onclick = (e) => {
+        e.stopPropagation();
+        const c = document.createElement("button");
+        c.className = "confirm"; c.textContent = "delete";
+        c.onclick = (ev) => { ev.stopPropagation(); S.files.splice(fileIdx(p), 1); if (S.active === p) S.active = S.files[0][0]; save(); renderTabs(); loadActive(); };
+        x.replaceWith(c);
+        setTimeout(() => { if (c.isConnected) c.replaceWith(x); }, 3000);
+      };
+      t.append(x);
+    }
+    box.append(t);
+  }
+  const add = document.createElement("button");
+  add.className = "add"; add.textContent = "+"; add.title = "New file";
+  add.onclick = () => newTab(add);
+  box.append(add);
+}
+function nameInput(initial, done) {
+  const i = document.createElement("input");
+  i.value = initial;
+  i.onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); done(i.value.trim()); }
+    if (e.key === "Escape") renderTabs();
+  };
+  i.onblur = () => done(i.value.trim());
+  return i;
+}
+function newTab(btn) {
+  let n = 1; while (fileIdx(`new${n}.s`) >= 0) n++;
+  const i = nameInput(`new${n}.s`, (v) => {
+    if (v && fileIdx(v) < 0) { S.files.push([v, ""]); S.active = v; save(); }
+    renderTabs(); loadActive();
+  });
+  btn.replaceWith(i); i.focus(); i.select();
+}
+function renameTab(t, p) {
+  const i = nameInput(p, (v) => {
+    if (v && v !== p && fileIdx(v) < 0) { S.files[fileIdx(p)][0] = v; if (S.active === p) S.active = v; save(); }
+    renderTabs();
+  });
+  t.replaceWith(i); i.focus(); i.select();
+}
+function openFile(p) { S.active = p; save(); renderTabs(); loadActive(); }
+function loadActive() { ta.value = cur()[1]; ta.scrollTop = 0; render(); }
+
+// palette
+
+function opButton(label, title, onClick, onShow, color) {
+  const b = document.createElement("button");
+  b.className = "op"; b.textContent = label; b.title = title;
+  if (color) b.style.color = `var(${color})`;
+  b.onclick = onClick;
+  b.onmouseenter = onShow; b.onfocus = onShow;
+  return b;
+}
+function showDoc(sig, d, hint) {
+  const parts = sig.split(" ");
+  const last = parts.pop();
+  $("doc").innerHTML = `<div class="sig">${esc(parts.join(" "))} <b>${esc(last)}</b></div><div class="what">${esc(d)}</div>` + (hint ? `<div class="hint">${esc(hint)}</div>` : "");
+}
+function buildPalette() {
+  const pal = $("pal");
+  const q = $("filter").value.trim().toLowerCase();
+  const match = (...xs) => !q || xs.some((x) => x && x.toLowerCase().includes(q));
+  pal.innerHTML = "";
+  const group = (title, color, items) => {
+    if (!items.length) return;
+    const g = document.createElement("div"); g.className = "grp";
+    g.innerHTML = `<h3><i style="background:var(${color})"></i>${esc(title)}</h3>`;
+    const ops = document.createElement("div"); ops.className = "ops";
+    items.forEach((b) => ops.append(b));
+    g.append(ops); pal.append(g);
+  };
+  group("literals", "--c-brace", LITS.filter((l) => match(l.w, l.d)).map((l) =>
+    opButton(l.w, l.d, () => insertTemplate(l.ins), () => showDoc(l.sig, l.d, l.hint), "--c-brace")));
+  group("suffix forms on a name", "--accent", SFX.filter((s) => match(s.w, s.d, s.sig)).map((s) =>
+    opButton(s.w, s.d, () => insertSuffix(s.w), () => showDoc(s.sig, s.d, (s.hint ? s.hint + " " : "") + "Click after a word to append; elsewhere inserts name" + s.w + "."), s.cond ? "--c-cond" : "--accent")));
+  for (const [g, [title, color]] of Object.entries(G)) {
+    group(title, color, CMDDOC.filter(([gg, w, sig, d]) => gg === g && match(w, d, sig, title)).map(([gg, w, sig, d, hint]) =>
+      opButton(w, sig + " — " + d, () => insertWord(w), () => showDoc(sig, d, hint), color)));
+  }
+  if (!pal.children.length) pal.innerHTML = `<p class="empty">No operation matches “${esc(q)}”.</p>`;
+}
+$("filter").addEventListener("input", buildPalette);
+
+// running
+
+let worker = null, runTimer = 0, runStart = 0, outBuf = "", outCap = 400000;
+const out = $("out");
+let workerURL = null;
+function makeWorker() {
+  if (!workerURL) {
+    const glue = `
+      const enc = new TextEncoder(), dec = new TextDecoder();
+      self.onmessage = (e) => {
+        const { files, path, argv, stdin } = e.data;
+        const vfs = new Map(files.map(([p, t]) => [p, enc.encode(t)]));
+        let buf = "", n = 0, last = performance.now(), changed = false;
+        const flush = () => { if (buf) { postMessage({ t: "out", s: buf }); buf = ""; } };
+        const host = {
+          vfs, stdin,
+          out(s) { buf += s; if (buf.length > 32768) flush(); },
+          err(s) { flush(); postMessage({ t: "err", s }); },
+          tick() { if ((++n & 4095) === 0) { const t = performance.now(); if (t - last > 60) { flush(); last = t; } } },
+          changed() { changed = true; },
+        };
+        let r;
+        try { r = SRT.run(host, path, argv); }
+        catch (err) { r = { code: 1, error: "internal: " + (err && err.message || err), state: null }; }
+        flush();
+        postMessage({ t: "done", code: r.code, error: r.error, state: r.state,
+          files: changed ? [...vfs].map(([p, b]) => [p, dec.decode(b)]) : null });
+      };`;
+    workerURL = URL.createObjectURL(new Blob([$("srt").textContent, glue], { type: "text/javascript" }));
+  }
+  return new Worker(workerURL);
+}
+function parseArgv(s) {
+  const out = []; let cur = null, q = null;
+  for (const c of s) {
+    if (q) { if (c === q) q = null; else cur += c; continue; }
+    if (c === "'" || c === '"') { q = c; if (cur === null) cur = ""; continue; }
+    if (/\s/.test(c)) { if (cur !== null) { out.push(cur); cur = null; } continue; }
+    cur = (cur || "") + c;
+  }
+  if (cur !== null) out.push(cur);
+  return out;
+}
+function appendOut(s, cls) {
+  outBuf += s;
+  if (outBuf.length > outCap) { outBuf = outBuf.slice(-outCap); out.textContent = "… earlier output trimmed\n" + outBuf; return; }
+  const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 4;
+  if (cls) { const sp = document.createElement("span"); sp.className = cls; sp.textContent = s; out.append(sp); }
+  else out.append(document.createTextNode(s));
+  if (atBottom) out.scrollTop = out.scrollHeight;
+}
+function setRunning(on) {
+  $("run").disabled = on; $("stop").disabled = !on;
+}
+function info(text, cls) { const r = $("runinfo"); r.textContent = text; r.className = "runinfo" + (cls ? " " + cls : ""); }
+function stop(msg) {
+  if (!worker) return;
+  worker.terminate(); worker = null; clearInterval(runTimer); setRunning(false);
+  appendOut("\n" + msg, "w");
+  info("stopped · " + Math.round(performance.now() - runStart) + " ms", "bad");
+}
+function run(live) {
+  if (worker) { worker.terminate(); worker = null; clearInterval(runTimer); }
+  out.textContent = ""; outBuf = "";
+  const w = makeWorker();
+  worker = w;
+  runStart = performance.now();
+  setRunning(true);
+  info(live ? "live run…" : "running…");
+  runTimer = setInterval(() => {
+    const el = performance.now() - runStart;
+    if (live && el > 1500) { stop("stopped: live runs are limited to 1.5 s; press Run for an unlimited run"); return; }
+    info("running · " + (el / 1000).toFixed(1) + " s");
+  }, 200);
+  w.onmessage = (e) => {
+    const m = e.data;
+    if (w !== worker) return;
+    if (m.t === "out") appendOut(m.s);
+    else if (m.t === "err") appendOut(m.s, "e");
+    else if (m.t === "done") {
+      clearInterval(runTimer); worker = null; setRunning(false); w.terminate();
+      const ms = Math.round(performance.now() - runStart);
+      if (m.error) appendOut("\ns: " + m.error, "e");
+      info(`exit ${m.code} · ${ms} ms`, m.code === 0 ? "good" : "bad");
+      if (m.state) renderState(m.state);
+      if (m.files) applyFiles(m.files);
+    }
+  };
+  w.onerror = (e) => { e.preventDefault(); if (w === worker) { appendOut("\nThe runner failed: " + e.message, "e"); clearInterval(runTimer); worker = null; setRunning(false); info("failed", "bad"); } };
+  w.postMessage({ files: S.files, path: S.active, argv: parseArgv(S.argv), stdin: S.stdin ? S.stdin.split("\n") : [] });
+}
+function applyFiles(files) {
+  const was = cur()[1];
+  S.files = files;
+  if (fileIdx(S.active) < 0) S.active = S.files[0] ? S.files[0][0] : "main.s";
+  if (!S.files.length) S.files.push(["main.s", ""]);
+  save(); renderTabs();
+  if (cur()[1] !== was) loadActive();
+}
+function renderState(st) {
+  const box = $("state");
+  const table = (rows) => rows.length ? `<table class="kv">${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>` : `<div class="empty">empty</div>`;
+  box.innerHTML =
+    `<div><h4>stack (top at right)</h4><div class="chips">${st.stack.length ? st.stack.map((v) => `<span class="chip">${esc(v) || "&nbsp;"}</span>`).join("") : `<span class="empty">empty</span>`}</div></div>` +
+    `<div><h4>ow</h4><span class="chip ow-${st.ow}">${st.ow}</span></div>` +
+    `<div><h4>numbers</h4>${table(st.nums)}</div>` +
+    `<div><h4>mem</h4>${table(st.mem)}</div>` +
+    `<div><h4>lists</h4>${table(st.lists.map(([k, l]) => [k, "[" + l.join(", ") + "]"]))}</div>` +
+    `<div><h4>scripts</h4>${st.scripts.length ? `<div class="chips" style="justify-content:flex-start">${st.scripts.map((s) => `<span class="chip">${esc(s)}</span>`).join("")}</div>` : `<div class="empty">none</div>`}</div>` +
+    (st.repl.length ? `<div><h4>replacements</h4>${table(st.repl)}</div>` : "");
+}
+$("run").onclick = () => run(false);
+$("stop").onclick = () => stop("stopped by you");
+$("clear").onclick = () => { out.textContent = ""; outBuf = ""; info(""); };
+$("t-out").onclick = () => { $("t-out").classList.add("on"); $("t-state").classList.remove("on"); out.hidden = false; $("state").hidden = true; };
+$("t-state").onclick = () => { $("t-state").classList.add("on"); $("t-out").classList.remove("on"); out.hidden = true; $("state").hidden = false; };
+
+// settings and io
+
+function applySettings() {
+  ed.dataset.align = S.align;
+  $("al-right").setAttribute("aria-pressed", S.align === "right");
+  $("al-left").setAttribute("aria-pressed", S.align === "left");
+  document.documentElement.style.setProperty("--code-size", S.size + "px");
+  $("live").checked = !!S.live;
+  requestAnimationFrame(syncBox);
+}
+$("al-right").onclick = () => { S.align = "right"; save(); applySettings(); };
+$("al-left").onclick = () => { S.align = "left"; save(); applySettings(); };
+$("fs-down").onclick = () => { S.size = Math.max(11, S.size - 1); save(); applySettings(); };
+$("fs-up").onclick = () => { S.size = Math.min(26, S.size + 1); save(); applySettings(); };
+$("live").onchange = (e) => { S.live = e.target.checked; save(); if (S.live) run(true); };
+$("stdin").value = S.stdin; $("argv").value = S.argv;
+$("stdin").oninput = (e) => { S.stdin = e.target.value; save(); };
+$("argv").oninput = (e) => { S.argv = e.target.value; save(); };
+function flash(t) { info(t); setTimeout(() => { if ($("runinfo").textContent === t) info(""); }, 1600); }
+$("copy").onclick = () => {
+  const t = ta.value;
+  navigator.clipboard.writeText(t).then(() => flash("Copied " + S.active), () => { ta.focus(); ta.select(); flash("Selected, press Ctrl+C"); });
+};
+$("upload").onclick = () => $("file-in").click();
+$("file-in").onchange = async (e) => {
+  for (const f of e.target.files) {
+    const t = await f.text();
+    const i = fileIdx(f.name);
+    if (i >= 0) S.files[i][1] = t; else S.files.push([f.name, t]);
+    S.active = f.name;
+  }
+  e.target.value = "";
+  save(); renderTabs(); loadActive();
+};
+for (const ex of EXAMPLES) {
+  const o = document.createElement("option");
+  o.value = ex.id; o.textContent = ex.name;
+  $("examples").append(o);
+}
+$("examples").onchange = (e) => {
+  const ex = EXAMPLES.find((x) => x.id === e.target.value);
+  e.target.value = "";
+  if (!ex) return;
+  for (const [p, t] of ex.files) {
+    const i = fileIdx(p);
+    if (i >= 0) S.files[i][1] = t; else S.files.push([p, t]);
+  }
+  S.active = ex.files[0][0];
+  if (ex.argv !== undefined) { S.argv = ex.argv; $("argv").value = ex.argv; }
+  if (ex.stdin !== undefined) { S.stdin = ex.stdin; $("stdin").value = ex.stdin; }
+  save(); renderTabs(); loadActive(); run(false);
+};
+
+applySettings();
+renderTabs();
+loadActive();
+buildPalette();
+showDoc("value x~", SFX[0].d, "Hover an operation to read it here; click to insert it at the caret.");
+document.fonts && document.fonts.ready.then(syncBox);
+run(false);
+</script>

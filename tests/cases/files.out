@@ -1,0 +1,21 @@
+
+ line one
+line two
+ one
+ line one
+ 0
+ line two
+ 0
+ []
+ 1
+ first
+second
+
+ XYrs
+ XYrst
+second
+
+ f: missing_dir/x.txt: No such file or directory (os error 2)
+ could not open
+ shell
+ 3
